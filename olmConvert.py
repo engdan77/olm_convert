@@ -15,7 +15,7 @@ def main():
     args = sys.argv[1:]
 
     print("OLM Convert - (https://github.com/PeterWarrington/olm-convert)")
-    
+
     if (len(args) == 2 or (len(args) == 3 and "--noAttachments" in args)):
         print(f"Beginning conversion of {args[0]}....")
         convertOLM(args[0], args[1], noAttachments=("--noAttachments" in args))
@@ -48,7 +48,7 @@ def convertOLM(olmPath, outputDir, noAttachments=False, verbose=False):
                 print(f"Could not read {messagePath} due to {type(e)}, skipping.")
                 print(e)
                 continue
-            
+
             # Close messageFile
             messageFile.close()
 
@@ -102,7 +102,7 @@ def processMessage(xmlString, olmZip=None, noAttachments=False):
     # Check number of <email> elements below <emails> root element is 1
     if (len(root) != 1):
         raise ValueError(f"Expected one email beneath root, got {len(root)}.")
-    
+
     # Read date of email (e.g. "2022-05-26T17:55:40" -> "Thu, 26 May 2022 18:55:40 +0100") (https://datatracker.ietf.org/doc/html/rfc5322#section-3.3)
     sourceDateElm = root[0].find("OPFMessageCopySentTime")
     if (sourceDateElm == None):
@@ -115,7 +115,7 @@ def processMessage(xmlString, olmZip=None, noAttachments=False):
         dateEmlStr = f"Date: {dateEmlValue}\n"
     except ValueError:
         raise ValueError("Unexpected sent time format in source.")
-    
+
     # Read subject of email
     subjectElm = root[0].find("OPFMessageCopySubject")
     if (subjectElm == None):
@@ -123,7 +123,7 @@ def processMessage(xmlString, olmZip=None, noAttachments=False):
         subjectSrcStr = ""
         subjectEmlStr = f"Subject: \n"
     else:
-        subjectSrcStr = subjectElm.text 
+        subjectSrcStr = subjectElm.text
 
         subjectEmlValue = headerEncode(subjectSrcStr)
         subjectEmlStr = f"Subject: {subjectEmlValue}\n"
@@ -136,7 +136,7 @@ def processMessage(xmlString, olmZip=None, noAttachments=False):
     else:
         if (len(senderElm) != 1):
             raise ValueError(f"Expected 1 child of sender address, got {len(senderElm)}")
-        
+
         senderDetailElm = senderElm.find("emailAddress")
         if (senderDetailElm == None):
             raise ValueError("No child email address detail element for sender found.")
@@ -152,7 +152,7 @@ def processMessage(xmlString, olmZip=None, noAttachments=False):
     else:
         if (len(recipientElm) != 1):
             warnings.warn(f"Multiple recipient addresses, choosing first only.")
-        
+
         recipientDetailElm = recipientElm.find("emailAddress")
         if (recipientDetailElm == None):
             raise ValueError("No child email address detail element for recipient found.")
@@ -174,7 +174,7 @@ def processMessage(xmlString, olmZip=None, noAttachments=False):
         # Thread topic could not be found in source, just don't set a thread topic in EML header
         topicEmlStr = ""
     else:
-        topicSrcStr = topicElm.text 
+        topicSrcStr = topicElm.text
         topicEmlValue = headerEncode(topicSrcStr)
         topicEmlStr = f"Thread-Topic: {topicEmlValue}\n"
 
@@ -182,11 +182,11 @@ def processMessage(xmlString, olmZip=None, noAttachments=False):
     threadIndexElm = root[0].find("OPFMessageCopyThreadIndex")
     if (threadIndexElm == None):
         raise ValueError("Thread index could not be found in source.")
-    
+
     threadIndexEmlValue = threadIndexElm.text
     threadIndexEmlStr = f"Thread-Index: {threadIndexEmlValue}\n"
 
-    # Set other properties, as per MIME standard (necessary for attachments) 
+    # Set other properties, as per MIME standard (necessary for attachments)
     mimeVersionEmlStr = "Mime-version: 1.0\n"
     rootBoundaryUUID = generateBoundaryUUID()
     contentTypeEmlStr = f"""Content-type: multipart/mixed;\n\tboundary="{rootBoundaryUUID}"\n\n\n"""
@@ -200,7 +200,11 @@ def processMessage(xmlString, olmZip=None, noAttachments=False):
     plainTextContentTransferEncodingEmlStr = "Content-transfer-encoding: quoted-printable\n"
     plainTextContentElm = root[0].find("OPFMessageCopyBody")
     if (plainTextContentElm == None or plainTextContentElm.text == None):
-       raise ValueError("Text content could not be found in source.")
+        b = ''
+        if subjectEmlStr.startswith('Subject: =?UTF-8?B?'):
+            s = subjectEmlStr.removeprefix('Subject: =?UTF-8?B?')
+            b = base64.b64decode(s)
+        raise ValueError(f"Text content could not be found in source for item with subject: {b}.")
     plainTextContentStr = lineWrapBody(plainTextContentElm.text)
 
     # Read HTML content
@@ -312,23 +316,23 @@ def processAttachment(attachmentElm, olmZip):
     attachmentFileZipPath = attachmentElm.get("OPFAttachmentURL")
     if (attachmentFileZipPath == None):
         raise ValueError("Attachment has no specified zip file path.")
-    
+
     try:
         attachmentFileHandle = olmZip.open(attachmentFileZipPath)
         attachmentFileBytes = attachmentFileHandle.read()
         attachmentFileBase64 = base64.b64encode(attachmentFileBytes).decode("utf-8", "ignore")
 
         # Adds new line to base64 string every 76 characters as base64 strings are decoded as sets
-        # of 4 characters therefore the length of each base64 line must be a multiple of 4, and we 
+        # of 4 characters therefore the length of each base64 line must be a multiple of 4, and we
         # want this to be as close to the 78 character RFC2046 recommended  maximum line length as
         # possible.
         attachmentFileBase64 = '\n'.join(attachmentFileBase64[i:i+76] for i in range(0, len(attachmentFileBase64), 76)) # This line adapts code from https://stackoverflow.com/a/3258612 (CC BY-SA 2.5).
-        
+
         attachmentFileHandle.close()
     except Exception as e:
         print(e)
         raise ValueError("Unable to read attachment from OLM zip.")
-    
+
     # Assemble attachment eml
     attachmentEmlStr += attachmentContentTypeEmlStr
     attachmentEmlStr += attachmentContentIDEmlStr
